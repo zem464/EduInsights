@@ -1,14 +1,10 @@
 # EduInsight
 
-Philippine Basic Education Enrollment Analytics Platform
+**Philippine Basic Education Enrollment Analytics Platform**
 
 ## Overview
 
-EduInsight is an independent data analytics project
-that explores Philippine basic education enrollment
-data through a structured data workflow, data quality
-assessment, exploratory analysis, and interactive
-dashboard.
+EduInsight is an independent data analytics project that explores Philippine basic education enrollment data through a structured data workflow, data quality assessment, exploratory data analysis, and interactive dashboard.
 
 ## Project Objectives
 
@@ -31,3 +27,19 @@ dashboard.
 ## Project Status
 
 Currently in Phase 0: Project Setup and Requirements.
+
+## Project Structure
+
+```text
+EduInsight/
+├── assets/
+├── config/
+├── data/
+├── docs/
+├── src/
+├── tests/
+├── .gitignore
+├── README.md
+├── pyproject.toml
+└── requirements.txt
+```

@@ -1,0 +1,24 @@
+[project]
+name = "eduinsight"
+version = "0.1.0"
+description = "Philippine Basic Education Enrollment Analytics Platform"
+readme = "README.md"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # Pyflakes
+    "I",   # Import sorting
+    "UP",  # Python modernization
+    "B",   # Bugbear checks
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]

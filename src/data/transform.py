@@ -1,5 +1,7 @@
-import pandas as pd
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
 
 # =============================================
 # Project Paths
@@ -87,6 +89,90 @@ def create_school_enrollment(
     )
 
     return school_enrollment
+
+def add_school_derived_fields(
+    school_df: pd.DataFrame,
+    enrollment_columns: list[str]
+) -> pd.DataFrame:
+    """
+    Add education-level totals and analytical measures
+    to the school-level dataset.
+    """
+
+    df = school_df.copy()
+
+    # Remove the sex suffix to identify each enrollment category.
+    categories = {
+        column: column.removesuffix(" Male").removesuffix(" Female")
+        for column in enrollment_columns
+    }
+
+    # Identify enrollment columns by education level.
+    kindergarten_columns = [
+        column for column, category in categories.items()
+        if category == "K"
+    ]
+
+    elementary_columns = [
+        column for column, category in categories.items()
+        if category in {
+            "G1", "G2", "G3", "G4", "G5", "G6", "Elem NG"
+        }
+    ]
+
+    junior_high_columns = [
+        column for column, category in categories.items()
+        if category in {
+            "G7", "G8", "G9", "G10", "JHS NG"
+        }
+    ]
+
+    senior_high_columns = [
+        column for column, category in categories.items()
+        if category.startswith(("G11", "G12"))
+    ]
+
+    # Calculate enrollment totals by education level.
+    df["Kindergarten Enrollment"] = (
+        df[kindergarten_columns].sum(axis=1)
+    )
+
+    df["Elementary Enrollment"] = (
+        df[elementary_columns].sum(axis=1)
+    )
+
+    df["Junior High School Enrollment"] = (
+        df[junior_high_columns].sum(axis=1)
+    )
+
+    df["Senior High School Enrollment"] = (
+        df[senior_high_columns].sum(axis=1)
+    )
+
+    # Calculate the difference between male and female enrollment.
+    df["Male-Female Difference"] = (
+        df["Male Enrollment"] - df["Female Enrollment"]
+    )
+
+    # Calculate enrollment shares.
+    df["Male Enrollment Share (%)"] = np.where(
+        df["Total Enrollment"] > 0,
+        df["Male Enrollment"] / df["Total Enrollment"] * 100,
+        np.nan
+    )
+
+    df["Female Enrollment Share (%)"] = np.where(
+        df["Total Enrollment"] > 0,
+        df["Female Enrollment"] / df["Total Enrollment"] * 100,
+        np.nan
+    )
+
+    # Identify schools with zero enrollment.
+    df["Zero Enrollment Flag"] = (
+        df["Total Enrollment"] == 0
+    )
+
+    return df
 
 # =============================================
 # Long-Format Enrollment Dataset
@@ -213,6 +299,28 @@ def create_enrollment_long(
         )[0]
     )
 
+    # Calculate each school's total enrollment.
+    school_totals = (
+        df.set_index("BEIS School ID")[enrollment_columns]
+        .sum(axis=1)
+    )
+
+    # Attach the school's total to each long-format record.
+    enrollment_long["School Total Enrollment"] = (
+        enrollment_long["BEIS School ID"].map(school_totals)
+    )
+
+    # Calculate each category-sex record's share of school enrollment.
+    enrollment_long["Enrollment Share of School (%)"] = np.where(
+        enrollment_long["School Total Enrollment"] > 0,
+        (
+            enrollment_long["Enrollment"]
+            / enrollment_long["School Total Enrollment"]
+            * 100
+        ),
+        np.nan
+    )
+
     return enrollment_long
 
 # =============================================
@@ -238,12 +346,13 @@ def validate_transformed_data(
     assert len(school_enrollment) == len(original_df)
 
     assert school_enrollment.shape[1] == (
-        original_df.shape[1] + 3
+        original_df.shape[1] + 11
     )
 
     # Long-format dataset checks
     assert len(enrollment_long) == expected_long_rows
-
+    assert enrollment_long.shape[1] == 23
+    
     assert enrollment_long["Sex"].notna().all()
 
     assert enrollment_long["Grade Level"].notna().all()
@@ -286,6 +395,70 @@ def validate_transformed_data(
     assert long_sex_totals["Male"] == original_male
     assert long_sex_totals["Female"] == original_female
 
+    # Education-level totals must equal total enrollment.
+    education_total = (
+        school_enrollment["Kindergarten Enrollment"]
+        + school_enrollment["Elementary Enrollment"]
+        + school_enrollment["Junior High School Enrollment"]
+        + school_enrollment["Senior High School Enrollment"]
+    )
+
+    assert (
+        education_total == school_enrollment["Total Enrollment"]
+    ).all()
+
+    # Male and female enrollment must equal total enrollment.
+    assert (
+        school_enrollment["Male Enrollment"]
+        + school_enrollment["Female Enrollment"]
+        == school_enrollment["Total Enrollment"]
+    ).all()
+
+    # Male and female enrollment shares must total 100%.
+    nonzero_schools = (
+        school_enrollment["Total Enrollment"] > 0
+    )
+
+    share_total = (
+        school_enrollment.loc[
+            nonzero_schools, "Male Enrollment Share (%)"
+        ]
+        + school_enrollment.loc[
+            nonzero_schools, "Female Enrollment Share (%)"
+        ]
+    )
+
+    assert np.allclose(share_total, 100)
+
+    # Zero-enrollment flag must match total enrollment.
+    assert (
+        school_enrollment["Zero Enrollment Flag"]
+        == (school_enrollment["Total Enrollment"] == 0)
+    ).all()
+
+    # Verify zero-enrollment school count.
+    assert (
+        school_enrollment["Zero Enrollment Flag"].sum() == 115
+    )
+
+    # Verify long-format enrollment shares.
+    share_totals = (
+        enrollment_long.groupby("BEIS School ID")[
+            "Enrollment Share of School (%)"
+        ].sum(min_count=1)
+    )
+
+    nonzero_ids = school_enrollment.loc[
+        nonzero_schools, "BEIS School ID"
+    ]
+
+    assert np.allclose(
+        share_totals.loc[nonzero_ids].to_numpy(),
+        100
+    )
+
+    print("Validation checks passed!")
+
     print("All transformation validation checks passed!")
     print("--------------------------------------------")
     print(f"School-level shape: {school_enrollment.shape}")
@@ -294,6 +467,10 @@ def validate_transformed_data(
     print(f"Male enrollment: {original_male:,}")
     print(f"Female enrollment: {original_female:,}")
     print(f"Total enrollment: {original_total:,}")
+    print(
+        f"Zero-enrollment schools: "
+        f"{school_enrollment['Zero Enrollment Flag'].sum()}"
+    )
 
 # =============================================
 # Save Processed Datasets
@@ -365,6 +542,11 @@ def main():
 
     school_enrollment = create_school_enrollment(
         df,
+        enrollment_columns
+    )
+
+    school_enrollment = add_school_derived_fields(
+        school_enrollment,
         enrollment_columns
     )
 
